@@ -36,38 +36,43 @@ def check_url(
     host = urlparse(url).hostname or url
     res = CheckResult(name=name, url=url)
 
-    res.sys_ip = dns_mod.resolve_system(host)
-    res.doh_ip = dns_mod.resolve_doh(host, timeout=timeout)
+    sys_ips = dns_mod.resolve_system_all(host)
+    doh_ips = dns_mod.resolve_doh_all(host, timeout=timeout)
 
-    if res.sys_ip is None and res.doh_ip is not None:
+    res.sys_ips = sorted(sys_ips)
+    res.doh_ips = sorted(doh_ips)
+    res.sys_ip = res.sys_ips[0] if res.sys_ips else None
+    res.doh_ip = res.doh_ips[0] if res.doh_ips else None
+
+    if not sys_ips and doh_ips:
         res.verdict = Verdict.DNS_BLOCK
         res.confidence = Confidence.HIGH
         res.dns_error = "system resolver failed, DoH succeeded"
         res.notes.append(
-            "system DNS doesn't resolve, DoH does — consistent with DNS poisoning"
+            "system DNS doesn't resolve, DoH does - consistent with DNS poisoning"
         )
         return res
 
-    if res.sys_ip is None and res.doh_ip is None:
+    if not sys_ips and not doh_ips:
         res.verdict = Verdict.DOWN
         res.confidence = Confidence.LOW
         res.dns_error = "domain not resolved anywhere"
         res.notes.append(
-            "domain doesn't resolve via system DNS or DoH — could be NXDOMAIN, "
+            "domain doesn't resolve via system DNS or DoH - could be NXDOMAIN, "
             "downed authoritative server, or DNS-level block"
         )
         return res
 
-    if res.sys_ip and res.doh_ip and res.sys_ip != res.doh_ip:
+    if sys_ips and doh_ips and sys_ips.isdisjoint(doh_ips):
         res.dns_mismatch = True
         res.notes.append(
-            f"DNS mismatch: sys={res.sys_ip} vs doh={res.doh_ip} "
-            "(may indicate transparent DNS rewriting)"
+            f"DNS mismatch: sys={sorted(sys_ips)} vs doh={sorted(doh_ips)} "
+            "(disjoint address sets - may indicate transparent DNS rewriting)"
         )
 
-    if res.sys_ip is not None and res.doh_ip is None:
+    if sys_ips and not doh_ips:
         res.notes.append(
-            "DoH lookup failed — control comparison unavailable, "
+            "DoH lookup failed - control comparison unavailable, "
             "DNS poisoning cannot be ruled out"
         )
 
@@ -79,14 +84,14 @@ def check_url(
             res.verdict = Verdict.TIMEOUT
             res.confidence = Confidence.LOW
             res.notes.append(
-                "TCP timeout on port 443 — could be IP block, route loss, "
+                "TCP timeout on port 443 - could be IP block, route loss, "
                 "or upstream congestion"
             )
         elif "reset" in (res.tcp_error or ""):
             res.verdict = Verdict.TCP_RESET
             res.confidence = Confidence.MEDIUM
             res.notes.append(
-                "TCP RST received — pattern matches RST injection by a "
+                "TCP RST received - pattern matches RST injection by a "
                 "middlebox, but a busy server can also send RST"
             )
         else:
@@ -107,14 +112,14 @@ def check_url(
             res.verdict = Verdict.TLS_BLOCK
             res.confidence = Confidence.MEDIUM
             res.notes.append(
-                "TLS reset right after ClientHello — consistent with SNI-based "
+                "TLS reset right after ClientHello - consistent with SNI-based "
                 "DPI filtering (typical TSPU/RKN signature), not proof"
             )
         elif "timeout" in err:
             res.verdict = Verdict.TLS_BLOCK
             res.confidence = Confidence.MEDIUM
             res.notes.append(
-                "TLS handshake silently dropped — consistent with DPI filtering "
+                "TLS handshake silently dropped - consistent with DPI filtering "
                 "by ClientHello, but could be a flaky path"
             )
         else:
@@ -140,7 +145,7 @@ def check_url(
     if res.status_code == 451:
         res.verdict = Verdict.HTTP_STUB
         res.confidence = Confidence.HIGH
-        res.notes.append("HTTP 451 — Unavailable For Legal Reasons (explicit)")
+        res.notes.append("HTTP 451 - Unavailable For Legal Reasons (explicit)")
         return res
 
     if http_mod.looks_like_stub(probe.body_snippet):
@@ -164,7 +169,7 @@ def iter_check_urls(
 ) -> Iterator[CheckResult]:
     """Yield CheckResult objects as soon as each probe finishes.
 
-    Order is *not* the input order — it's the completion order. Callers that
+    Order is *not* the input order - it's the completion order. Callers that
     need the original order should sort by name (or look it up) after
     consuming the iterator. Callers that just want to print results live as
     they arrive can iterate directly.
@@ -196,9 +201,9 @@ def check_urls_parallel(
 ) -> list[CheckResult]:
     """Run all probes in parallel and return results in the original input order.
 
-    Backwards-compatible wrapper around iter_check_urls — used by the JSON
+    Backwards-compatible wrapper around iter_check_urls - used by the JSON
     output path where streaming gives no benefit (the document has to be
-    emitted as a whole anyway).
+    emitted as a whole anyway)
     """
     name_order = list(urls.keys())
     by_name = {

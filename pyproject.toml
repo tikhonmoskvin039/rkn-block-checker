@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rkn-block-checker"
-version = "0.3.2"
+version = "0.4.0"
 description = "Diagnose RKN/TSPU internet blocks layer by layer (DNS, TCP, TLS, HTTP)."
 readme = "README.md"
 license = { text = "MIT" }

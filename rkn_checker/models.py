@@ -53,6 +53,8 @@ class CheckResult:
 
     sys_ip: Optional[str] = None
     doh_ip: Optional[str] = None
+    sys_ips: list[str] = field(default_factory=list)
+    doh_ips: list[str] = field(default_factory=list)
     dns_mismatch: bool = False
     dns_error: Optional[str] = None
 

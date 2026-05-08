@@ -1,0 +1,11 @@
+services:
+  rkn-check:
+    build:
+      context: .
+    image: rkn-block-checker:latest
+    stdin_open: true
+    tty: true
+    working_dir: /work
+    volumes:
+      - ./:/work
+    command: ["--help"]
