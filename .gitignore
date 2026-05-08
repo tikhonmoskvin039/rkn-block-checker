@@ -19,3 +19,4 @@ htmlcov/
 .vscode/
 *.swp
 .DS_Store
+LOCAL_WINDOWS_POWERSHELL_GUIDE.md

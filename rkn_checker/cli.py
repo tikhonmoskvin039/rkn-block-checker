@@ -16,7 +16,7 @@ from .targets import BLACK_URLS, WHITE_URLS
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="rkn-check",
+        prog="python -m rkn_checker",
         description=(
             "Probe a list of sites and decide whether the current network "
             "is in an RKN-blocked zone."

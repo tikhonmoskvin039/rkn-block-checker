@@ -74,8 +74,12 @@ Python 3.10+.
 
 ```bash
 pip install rkn-block-checker
-rkn-check
+python -m rkn_checker -h
+python -m rkn_checker
 ```
+
+`rkn-check` is still available as a console alias if your `PATH` includes
+the Python Scripts directory.
 
 Or from source:
 
@@ -83,15 +87,17 @@ Or from source:
 git clone https://github.com/MayersScott/rkn-block-checker.git
 cd rkn-block-checker
 pip install -e .
-rkn-check
+python -m rkn_checker
 ```
 
 ## Usage
 
 ```text
-rkn-check [-h] [--json] [--white] [--black] [--timeout TIMEOUT]
-          [--workers WORKERS] [-v]
+python -m rkn_checker [-h] [--json] [--white] [--black]
+                      [--timeout TIMEOUT] [--workers WORKERS] [-v]
 ```
+
+The `rkn-check` alias accepts the same flags.
 
 | flag | what it does |
 |------|--------------|
@@ -166,13 +172,13 @@ Pipes nicely into `jq`:
 
 ```bash
 # names of every blocked site
-rkn-check --json | jq -r '.blacklist[] | select(.verdict != "OK") | .name'
+python -m rkn_checker --json | jq -r '.blacklist[] | select(.verdict != "OK") | .name'
 
 # count by block type
-rkn-check --json | jq '.blacklist | group_by(.verdict) | map({verdict: .[0].verdict, count: length})'
+python -m rkn_checker --json | jq '.blacklist | group_by(.verdict) | map({verdict: .[0].verdict, count: length})'
 
 # only DPI-style blocks (TCP fine, TLS dies)
-rkn-check --json | jq '.blacklist[] | select(.verdict == "TLS_BLOCK" and .tcp_ok)'
+python -m rkn_checker --json | jq '.blacklist[] | select(.verdict == "TLS_BLOCK" and .tcp_ok)'
 ```
 
 ## How it works
@@ -255,7 +261,7 @@ the artifacts to a GitHub Release with auto-generated notes.
   for a verdict but won't catch a block that affects only one specific
   resource. To extend — `rkn_checker/targets.py`.
 - One-shot snapshot, no retries, no longitudinal tracking. If you want to
-  monitor a connection over time, run `rkn-check --json` from cron.
+  monitor a connection over time, run `python -m rkn_checker --json` from cron.
 - Stub markers are mostly Russian-language phrases; false positives on
   unrelated sites that happen to contain the same words are theoretically
   possible but I haven't seen one yet.
