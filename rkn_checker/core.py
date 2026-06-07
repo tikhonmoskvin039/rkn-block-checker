@@ -32,12 +32,13 @@ def check_url(
     url: str,
     timeout: float = 5.0,
     identify: bool = False,
+    proxy_url: Optional[str] = None,
 ) -> CheckResult:
     host = urlparse(url).hostname or url
     res = CheckResult(name=name, url=url)
 
     sys_ips = dns_mod.resolve_system_all(host)
-    doh_ips = dns_mod.resolve_doh_all(host, timeout=timeout)
+    doh_ips = dns_mod.resolve_doh_all(host, timeout=timeout, proxy_url=proxy_url)
 
     res.sys_ips = sorted(sys_ips)
     res.doh_ips = sorted(doh_ips)
@@ -77,8 +78,9 @@ def check_url(
         )
 
     res.tcp_ok, res.tcp_time_ms, res.tcp_error = network.check_tcp(
-        host, timeout=timeout
+        host, timeout=timeout, proxy_url=proxy_url
     )
+    
     if not res.tcp_ok:
         if res.tcp_error == "timeout":
             res.verdict = Verdict.TIMEOUT
@@ -100,12 +102,10 @@ def check_url(
             res.notes.append(f"TCP failed: {res.tcp_error}")
         return res
 
-    (
-        res.tls_ok,
-        res.tls_time_ms,
-        res.tls_cert_cn,
-        res.tls_error,
-    ) = network.check_tls(host, timeout=timeout)
+    (res.tls_ok, res.tls_time_ms, res.tls_cert_cn, res.tls_error) = network.check_tls(
+        host, timeout=timeout, proxy_url=proxy_url
+    )
+
     if not res.tls_ok:
         err = (res.tls_error or "").lower()
         if "reset" in err:
@@ -128,7 +128,7 @@ def check_url(
             res.notes.append(f"TLS error: {res.tls_error}")
         return res
 
-    probe = http_mod.fetch(url, timeout=timeout, identify=identify)
+    probe = http_mod.fetch(url, timeout=timeout, identify=identify, proxy_url=proxy_url)
     res.status_code = probe.status_code
     res.plt_ms = probe.elapsed_ms
     res.http_error = probe.error
@@ -166,20 +166,15 @@ def iter_check_urls(
     max_workers: int = DEFAULT_WORKERS,
     timeout: float = 5.0,
     identify: bool = False,
+    proxy_url: Optional[str] = None,
 ) -> Iterator[CheckResult]:
-    """Yield CheckResult objects as soon as each probe finishes.
-
-    Order is *not* the input order - it's the completion order. Callers that
-    need the original order should sort by name (or look it up) after
-    consuming the iterator. Callers that just want to print results live as
-    they arrive can iterate directly.
-    """
+    """Yield CheckResult objects as soon as each probe finishes."""
     if not urls:
         return
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures_map: dict = {}
         for name, url in urls.items():
-            fut = pool.submit(check_url, name, url, timeout, identify)
+            fut = pool.submit(check_url, name, url, timeout, identify, proxy_url)
             futures_map[fut] = name
         for fut in as_completed(futures_map):
             try:
@@ -198,18 +193,14 @@ def check_urls_parallel(
     max_workers: int = DEFAULT_WORKERS,
     timeout: float = 5.0,
     identify: bool = False,
+    proxy_url: Optional[str] = None,
 ) -> list[CheckResult]:
-    """Run all probes in parallel and return results in the original input order.
-
-    Backwards-compatible wrapper around iter_check_urls - used by the JSON
-    output path where streaming gives no benefit (the document has to be
-    emitted as a whole anyway)
-    """
     name_order = list(urls.keys())
     by_name = {
         r.name: r
         for r in iter_check_urls(
-            urls, max_workers=max_workers, timeout=timeout, identify=identify,
+            urls, max_workers=max_workers, timeout=timeout,
+            identify=identify, proxy_url=proxy_url,
         )
     }
     return [by_name[name] for name in name_order if name in by_name]

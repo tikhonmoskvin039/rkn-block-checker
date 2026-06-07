@@ -12,6 +12,7 @@ from .lists import ListLoadError, load_targets
 from .models import CheckResult
 from .output import print_header, print_result, print_section, print_summary
 from .targets import BLACK_URLS, WHITE_URLS
+from typing import Optional
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -54,6 +55,14 @@ def _build_parser() -> argparse.ArgumentParser:
                         "infrastructure you control or have permission to probe; "
                         "the default blends in with normal traffic to avoid "
                         "leaving a unique fingerprint in network logs.")
+    p.add_argument("--proxy", dest="proxy_url", metavar="URL",
+                   help="route per-target probes (TCP, TLS, HTTP, DoH) through "
+                        "a proxy. Format: socks5://host:port, "
+                        "socks5h://host:port (remote DNS), socks4://host:port, "
+                        "or http://host:port. The local system DNS lookup is "
+                        "intentionally NOT proxied — its purpose is to detect "
+                        "ISP-level DNS poisoning, which requires going through "
+                        "the local resolver. Authentication: include user:pass@.")
     return p
 
 
@@ -117,17 +126,18 @@ def _run_streaming(
     workers: int,
     timeout: float,
     identify: bool = False,
+    proxy_url: Optional[str] = None,
 ) -> tuple[list[CheckResult], list[CheckResult]]:
     white_results: list[CheckResult] = []
     black_results: list[CheckResult] = []
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         white_futs = {
-            pool.submit(check_url, name, url, timeout, identify): name
+            pool.submit(check_url, name, url, timeout, identify, proxy_url): name
             for name, url in (white_urls.items() if run_white else [])
         }
         black_futs = {
-            pool.submit(check_url, name, url, timeout, identify): name
+            pool.submit(check_url, name, url, timeout, identify, proxy_url): name
             for name, url in (black_urls.items() if run_black else [])
         }
 
@@ -155,13 +165,14 @@ def _run_ad_hoc(
     workers: int,
     timeout: float,
     identify: bool,
+    proxy_url: Optional[str] = None,
 ) -> list[CheckResult]:
     """Probe an ad-hoc list of URLs in a single section, no white/black split."""
     results: list[CheckResult] = []
     print_section(f"Ad-hoc URLs ({len(targets)})")
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futs = {
-            pool.submit(check_url, name, url, timeout, identify): name
+            pool.submit(check_url, name, url, timeout, identify, proxy_url): name
             for name, url in targets.items()
         }
         for fut in as_completed(futs):
@@ -189,11 +200,31 @@ def main(argv: list[str] | None = None) -> int:
             "--url cannot be combined with --white/--black/--white-file/--black-file; "
             "ad-hoc mode runs the listed URLs and nothing else"
         )
+    if args.proxy_url:
+            p = urlparse(args.proxy_url)
+            if not p.scheme or not p.hostname:
+                parser.error(
+                    "--proxy must be a full URL with scheme, e.g. "
+                    "socks5://192.168.1.1:1080 or http://proxy.local:8080"
+                )
+            if p.scheme.lower() not in {"socks5", "socks5h", "socks4", "http"}:
+                parser.error(
+                    f"--proxy scheme {p.scheme!r} not supported "
+                    "(use socks5, socks5h, socks4, or http)"
+                )
+            if not p.port:
+                parser.error(
+                    "--proxy URL must include a port, e.g. "
+                    f"{p.scheme}://{p.hostname}:1080"
+                )
+            try:
+                import socks  # noqa: F401
+            except ImportError:
+                parser.error(
+                    "--proxy requires PySocks. "
+                    "Install with: pip install 'rkn-block-checker[proxy]'"
+                )
 
-    # Ad-hoc single-URL mode: skip the whitelist/blacklist plumbing entirely.
-    # No summary verdict is produced — there's no control group to compare
-    # against, and `--url` is for "did this one site come through?" usage,
-    # not for diagnosing whether the user is in a blocked zone.
     if args.urls:
         ad_hoc = _ad_hoc_targets(args.urls)
         if not ad_hoc:
@@ -202,7 +233,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.as_json:
             from .core import check_urls_parallel
             results = check_urls_parallel(
-                ad_hoc, args.workers, args.timeout, identify=args.identify,
+                ad_hoc, args.workers, args.timeout,
+                identify=args.identify, proxy_url=args.proxy_url,
             )
             self_info = (
                 get_self_info(timeout=args.timeout)
@@ -221,7 +253,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print_header({})
         sys.stdout.flush()
-        _run_ad_hoc(ad_hoc, args.workers, args.timeout, args.identify)
+        _run_ad_hoc(ad_hoc, args.workers, args.timeout, args.identify,
+            proxy_url=args.proxy_url)
         return 0
 
     try:
@@ -237,13 +270,15 @@ def main(argv: list[str] | None = None) -> int:
         from .core import check_urls_parallel
         white_results = (
             check_urls_parallel(
-                white_urls, args.workers, args.timeout, identify=args.identify,
+                white_urls, args.workers, args.timeout,
+                identify=args.identify, proxy_url=args.proxy_url,
             )
             if run_white else []
         )
         black_results = (
             check_urls_parallel(
-                black_urls, args.workers, args.timeout, identify=args.identify,
+                black_urls, args.workers, args.timeout,
+                identify=args.identify, proxy_url=args.proxy_url,
             )
             if run_black else []
         )
@@ -266,6 +301,7 @@ def main(argv: list[str] | None = None) -> int:
     white_results, black_results = _run_streaming(
         run_white, run_black, white_urls, black_urls,
         args.workers, args.timeout, args.identify,
+        proxy_url=args.proxy_url,
     )
 
     if run_white and run_black:

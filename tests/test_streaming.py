@@ -10,7 +10,7 @@ from unittest.mock import patch
 from rkn_checker.core import iter_check_urls
 
 
-def _slow_check_url(name, url, timeout, identify=False):
+def _slow_check_url(name, url, timeout, identify=False, proxy_url=None):
     """Stand-in for check_url that takes a deterministic amount of time
     based on the target name. 'a' is fastest, 'd' is slowest."""
     delays = {"a": 0.05, "b": 0.10, "c": 0.15, "d": 0.20}
@@ -78,7 +78,7 @@ class TestExceptionHandling:
     def test_unexpected_exception_yields_unknown_verdict(self):
         from rkn_checker.models import CheckResult, Verdict
 
-        def _boom(name, url, timeout, identify=False):
+        def _boom(name, url, timeout, identify=False, proxy_url=None):
             raise RuntimeError("kaboom")
 
         urls = {"x": "https://x.example/"}

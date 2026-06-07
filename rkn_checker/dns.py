@@ -22,19 +22,27 @@ def resolve_system_all(host: str) -> frozenset[str]:
     return frozenset(info[4][0] for info in infos)
 
 
-def resolve_doh_all(host: str, timeout: float = DOH_TIMEOUT) -> frozenset[str]:
+def resolve_doh_all(
+    host: str,
+    timeout: float = DOH_TIMEOUT,
+    proxy_url: Optional[str] = None,
+) -> frozenset[str]:
     """Return every IPv4 address Cloudflare's DoH endpoint returns for `host`.
 
-    Mirror of resolve_system_all but going over HTTPS to a public resolver,
-    so callers can spot poisoning by comparing the two sets. Empty set on
-    failure
+    If a proxy is configured, the DoH lookup goes through it. The system
+    resolver call (resolve_system_all) deliberately doesn't — we *want* to
+    see what the local network claims for the hostname so we can compare
+    against an unfiltered control. Routing both sides through the proxy
+    would defeat the comparison.
     """
+    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
     try:
         r = requests.get(
             DOH_ENDPOINT,
             params={"name": host, "type": "A"},
             headers={"accept": "application/dns-json"},
             timeout=timeout,
+            proxies=proxies,
         )
         if not r.ok:
             return frozenset()
@@ -57,8 +65,12 @@ def resolve_system(host: str) -> Optional[str]:
     return sorted(ips)[0]
 
 
-def resolve_doh(host: str, timeout: float = DOH_TIMEOUT) -> Optional[str]:
-    ips = resolve_doh_all(host, timeout=timeout)
+def resolve_doh(
+    host: str,
+    timeout: float = DOH_TIMEOUT,
+    proxy_url: Optional[str] = None,
+) -> Optional[str]:
+    ips = resolve_doh_all(host, timeout=timeout, proxy_url=proxy_url)
     if not ips:
         return None
     return sorted(ips)[0]
